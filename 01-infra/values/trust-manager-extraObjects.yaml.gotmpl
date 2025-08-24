@@ -1,0 +1,22 @@
+deploymentMode: None
+serviceAccount:
+  create: false
+service:
+  enabled: false
+
+
+extraObjects:
+  - apiVersion: trust.cert-manager.io/v1alpha1
+    kind: Bundle
+    metadata:
+      name: data-platform-ca-bundle
+    spec:
+      sources:
+        - useDefaultCAs: true
+        - secret:
+            name: data-platform-root-ca-secret
+            key: ca.crt
+      target:
+        configMap:
+          name: data-platform-ca-bundle
+          key: ca.crt

@@ -1,0 +1,29 @@
+# vim: set filetype=yaml:
+
+# Tell KubeDeploy to not deploy anything other than the extraObjects
+deploymentMode: None
+serviceAccount:
+  create: false
+service:
+  enabled: false
+
+extraObjects:
+  - apiVersion: metallb.io/v1beta1
+    kind: IPAddressPool
+    metadata:
+      name: kind-pool
+      namespace: {{ .Release.Namespace }}
+    spec:
+      addresses:
+        - {{ requiredEnv "METALLB_IP_RANGE" }}
+  - apiVersion: metallb.io/v1beta1
+    kind: L2Advertisement
+    metadata:
+      name: kind-l2adv
+      namespace: {{ .Release.Namespace }}
+    spec:
+      ipAddressPools:
+        - kind-pool
+      nodeSelectors:
+        - matchLabels:
+            net: metallb-gateway

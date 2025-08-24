@@ -1,0 +1,34 @@
+deploymentMode: None
+serviceAccount:
+  create: false
+service:
+  enabled: false
+
+
+extraObjects:
+  - apiVersion: cert-manager.io/v1
+    kind: Certificate
+    metadata:
+      name: minio-tls-certificate
+      namespace: "{{ .Release.Namespace }}"
+    spec:
+      secretName: minio-tls-secret
+      issuerRef:
+        name: data-platform-ca-issuer
+        kind: ClusterIssuer
+      commonName: "minio.{{ .Release.Namespace }}.svc.cluster.local"
+      duration: "1128h" # 47 days
+      renewBeforePercentage: 25 # Renew 25% before expiration
+      dnsNames:
+        - "minio.{{ .Release.Namespace }}.svc.cluster.local"
+        - "minio.{{ .Release.Namespace }}.svc.cluster"
+        - "minio.{{ .Release.Namespace }}.svc"
+        - "minio.{{ .Release.Namespace }}"
+        - "minio"
+  - apiVersion: traefik.io/v1alpha1
+    kind: ServersTransport
+    metadata:
+      name: minio-server-transport
+      namespace: "{{ .Release.Namespace }}"
+    spec:
+      insecureSkipVerify: true

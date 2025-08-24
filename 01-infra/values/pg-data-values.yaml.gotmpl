@@ -1,0 +1,11 @@
+auth:
+  postgresPassword: {{ env "POSTGRESQLDATA_POSTGRES_PASSWORD" | default "postgrespassword" | quote }}
+  username: {{ env "POSTGRESQLDATA_USER_USERNAME" | default "testuser" | quote }}
+  password:  {{ env "POSTGRESQLDATA_USER_PASSWORD" | default "testpassword" | quote }}
+primary:
+  persistence:
+    size: "4Gi"
+  service:
+    type: LoadBalancer
+passwordUpdateJob:
+  enabled: true

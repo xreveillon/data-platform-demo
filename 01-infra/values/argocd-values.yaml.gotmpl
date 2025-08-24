@@ -1,0 +1,69 @@
+{{ $globalDomain := env "GLOBAL_DOMAIN" | default "data-platform.xreveillon.eu" }}
+{{ $argoDomain := print "argocd." $globalDomain }}
+## Globally shared configuration
+global:
+  # -- Default domain used by all components
+  ## Used for ingresses, certificates, SSO, notifications, etc.
+  domain: "{{ $argoDomain }}"
+
+## Argo Configs
+configs:
+  # Argo CD configuration parameters
+  ## Ref: https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/argocd-cmd-params-cm.yaml
+  params:
+
+    ## Server properties
+    # -- Run server without TLS
+    ## NOTE: This value should be set when you generate params by other means as it changes ports used by ingress template.
+    server.insecure: false
+
+  # Argo CD sensitive data
+  # Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/#sensitive-data-and-sso-client-secrets
+  secret:
+    # -- Create the argocd-secret
+    createSecret: true
+    # -- Bcrypt hashed admin password
+    ## Argo expects the password in the secret to be bcrypt hashed. You can create this hash with
+    ## `htpasswd -nbBC 10 "" $ARGO_PWD | tr -d ':\n' | sed 's/$2y/$2a/'`
+    # Current password: myVerySecretPassword
+    # "$2a$10$OYM/vhdmA9ZyQYEcr1m4s.IbfHq9YAH9rDg93VbZf4yWXLMMynJnOroot@0901c2bfe561"
+    {{ $argoPassword := env "ARGOCD_ADMIN_PASSWORD" | default "myVerySecretPassword" }}
+    {{ $bashCommand := print "docker run --entrypoint htpasswd httpd:2 -nbBC 10 '' " ( $argoPassword | quote ) " | tr -d ':\n' | sed 's/$2y/$2a/'" }}
+    {{ $argoPasswordHtpasswd := exec "bash" ( list "-c" $bashCommand ) }}
+    argocdServerAdminPassword: {{ $argoPasswordHtpasswd | quote }}
+
+# -- Array of extra K8s manifests to deploy
+## Note: Supports use of custom Helm templates
+extraObjects:
+  - apiVersion: traefik.io/v1alpha1
+    kind: IngressRoute
+    metadata:
+      name: argocd-server
+      namespace: argocd
+    spec:
+      entryPoints:
+        - websecure
+      routes:
+        - kind: Rule
+          match: Host(`{{ $argoDomain }}`)
+          priority: 10
+          services:
+            - name: argocd-server
+              port: 443
+              scheme: https
+              serversTransport: argocd-server-transport
+        - kind: Rule
+          match: Host(`{{ $argoDomain }}`) && Header(`Content-Type`, `application/grpc`)
+          priority: 11
+          services:
+            - name: argocd-server
+              port: 443
+              scheme: h2c
+              serversTransport: argocd-server-transport
+  - apiVersion: traefik.io/v1alpha1
+    kind: ServersTransport
+    metadata:
+      name: argocd-server-transport
+      namespace: argocd
+    spec:
+      insecureSkipVerify: true

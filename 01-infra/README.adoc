@@ -1,0 +1,173 @@
+= Data Platform Cluster Configuration and Deployment
+:toc: macro
+:toclevels: 2
+:toc-title: Table of Contents
+
+== Infrastructure
+
+.Infrastructure
+* Requirements
+** Linux-based OS (Debian-based or in RedHat line)
+** Docker or Podman (some of the scripts provided here use Docker, but all the tools support podman)
+** jq `sudo apt/dnf install jq`
+* Tools
+** kind
+** kubectl
+** helm
+** helmfile (go install github.com/helmfile/helmfile@latest suivi de helmfile init )
+* Kind Cluster
+** 1 control plane node and 2 worker nodes
+** IPV4 network, default configuration
+** MetalLB for incoming traffic
+* Software
+** Traefik as Ingress Controller and Gateway API implementation
+** Cert-manager for TLS certificates
+** One postgreSQL database with some data
+** Minio object storage
+
+== Install required tools
+=== Prerequisites
+
+Like I said, you need a Linux-based OS, Docker or Podman, and `jq` installed.
+
+=== kind
+
+https://kind.sigs.k8s.io[Kind,window=_blank] is a piece of software to create kubernetes clusters on your machine. Each node of the clusters is supplied by a container, whether Docker or Podman.
+
+This demo platform creates a cluster with 1 control plane node and 2 worker nodes.
+
+To install it, follow the instructions on https://kind.sigs.k8s.io/docs/user/quick-start/#installation[the official documentation,window=_blank]. I like to use the `go install` command, but you can also download a binary.
+
+[source, bash]
+----
+# For golang developers
+go install sigs.k8s.io/kind@latest
+
+# Otherwise, download the binary
+# For AMD64 / x86_64
+[ $(uname -m) = x86_64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64
+# For ARM64
+[ $(uname -m) = aarch64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-arm64
+chmod +x ./kind
+sudo mv ./kind /usr/local/bin/kind
+----
+
+=== kubectl
+
+https://kubernetes.io/docs/reference/kubectl/kubectl/[kubectl,window=_blank] is the command line tool to interact with a kubernetes cluster.
+
+To install it, please refer to the https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/[official documentation,window=_blank], where you'll choose your preferred installation method.
+
+=== helm
+
+https://helm.sh[Helm,window=_blank] is a package manager for kubernetes. It allows you to install and manage applications on your cluster. Instead of having to create the podspecs, services, and other resources by hand, you can use a helm chart to install an application with a single command, the charts being provided by the application developers or the community.
+
+Each chart allows setting some parameters, like the number of replicas, the image to use, the resources to allocate, etc. This allows you to customize the installation to your needs. Those configurations are called values.
+
+A fast way to install Helm is to use the `go install` command, but you can also download a binary.
+
+[source, bash]
+----
+# For golang developers
+go install helm.sh/helm/v3/cmd/helm@latest
+
+# Otherwise, download the binary
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+chmod 700 get_helm.sh
+./get_helm.sh
+----
+
+=== helmfile
+
+https://helmfile.readthedocs.io/[Helmfile,window=_blank] is a tool to manage multiple helm releases and their configuration at once. The file `helmfile.yaml` in this folder contains the configuration for the tools considered as infra.
+
+To install it, again it is simpler for go developers, other people need to download a binary.
+
+[source, bash]
+----
+# For golang developers
+go install github.com/helmfile/helmfile@latest
+
+# Otherwise, download the binary and make it executable
+#!/bin/bash
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+VERSION=$(curl -s https://api.github.com/repos/helmfile/helmfile/releases/latest | jq -r '.tag_name')
+VERSION=${VERSION#v}
+curl -L "https://github.com/helmfile/helmfile/releases/latest/download/helmfile_${VERSION}_linux_${ARCH}.tar.gz" | tar -xz helmfile
+chmod +x helmfile
+sudo mv ./helmfile /usr/local/bin/helmfile
+----
+
+And then run this command to install the helm plugins needed by helmfile
+
+```bash
+helmfile init
+```
+
+== Deployment of the infra
+
+First, customize, a little bit your infra with the usernames and password you want to use. Edit the file link:./.env[.env], based on following descriptions.
+
+.Description of environment variables
+[cols="1,1", options="header"]
+|===
+| Name | Description
+
+| GLOBAL_DOMAIN | The global domain under which you would like to expose your services. For example, with the default value of `data-platform.xreveillon.eu`, minio would be exposed under `minio.data-platform.xreveillon.eu`.
+
+| MINIO_ACCESS_KEY | The root access key (= login) for MinIO
+| MINIO_SECRET_KEY | The root password for MinIO
+
+| AIRBYTE_S3_ACCESS_KEY | The access key for Airbyte to connect to the bronze bucket on MinIO
+| AIRBYTE_S3_SECRET_KEY | The secret key for Airbyte to connect to MinIO
+
+| REGISTRY_USER | The username for the container registry
+| REGISTRY_PASSWORD | The password for the container registry
+| REGISTRY_S3_ACCESS_KEY | The access key for the container registry to connect to the S3 bucket
+| REGISTRY_S3_SECRET_KEY | The secret key for the container registry to connect to the S3 bucket
+
+|===
+
+And then execute the following bash commands
+
+[source, bash]
+----
+# Create the kind cluster
+kind create cluster --config kind-config.yaml
+
+# Load environment variables
+set -a ; . .env ; set +a
+
+# Extract the IPv4 network CIDR of the kind cluster
+export KIND_IPV4_CIDR=$(docker network inspect kind | jq -r '.[0].IPAM.Config[] | select(.Subnet | test(":") | not) | .Subnet')
+
+# Calculate the MetalLB IP range
+export METALLB_IP_RANGE=$(./last10range.sh $KIND_IPV4_CIDR)
+
+# Install Gateway API CRDs from the Experimental channel.
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/experimental-install.yaml
+
+# Install all releases
+helmfile apply
+----
+
+That's it! After several minutes, the infrastructure will be ready to host your data-platform!
+
+== Last step
+
+But before being able to use it, ask the IP MetalLB has assigned to the traefik ingress and add a line to your `/etc/hosts` file:
+
+[source,bash]
+----
+# Get the IP assigned to traefik
+kubectl get service -o wide -n traefik
+----
+
+The IP to use is the `EXTERNAL IP`
+
+Replace the traefik IP and the domain "data-platform.xreveillon.eu" with the one you chose in the following line to add to your `/etc/hosts` file:
+
+[source,bash]
+----
+<YourTraefikIP> traefik.data-platform.xreveillon.eu airbyte.data-platform.xreveillon.eu argocd.data-platform.xreveillon.eu minio-console.data-platform.xreveillon.eu s3.data-platform.xreveillon.eu gravitino.data-platform.xreveillon.eu
+----

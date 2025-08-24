@@ -1,0 +1,18 @@
+global:
+  security:
+    allowInsecureImages: true
+primary:
+  containerSecurityContext:
+    readOnlyRootFilesystem: false
+  persistence:
+    enabled: false
+  service:
+    type: LoadBalancer
+image:
+  registry: docker.gijoe88.com
+  repository: pg-container-with-sample-data
+  tag: latest
+auth:
+  username: testuser
+  password: testpassword
+postgresqlDataDir: /var/lib/postgresql/data

@@ -1,0 +1,171 @@
+mode: standalone
+replicas: 1
+
+rootUser: minio
+rootPassword: minio123
+
+
+## Set default image, imageTag, and imagePullPolicy. mode is used to indicate the
+##
+image:
+  repository: quay.io/minio/minio
+  #tag: RELEASE.2025-07-23T15-54-02Z
+
+
+## Set default image, imageTag, and imagePullPolicy for the `mc` (the minio
+## client used to create a default bucket).
+##
+mcImage:
+  repository: quay.io/minio/mc
+  #tag: RELEASE.2025-07-21T05-28-08Z
+
+## TLS Settings for MinIO
+tls:
+  enabled: false
+  ## Create a secret with private.key and public.crt files and pass that here. Ref: https://github.com/minio/minio/tree/master/docs/tls/kubernetes#2-create-kubernetes-secret
+  certSecret: "minio-tls-secret"
+  publicCrt: tls.crt
+  privateKey: tls.key
+
+
+service:
+  annotations:
+    traefik.ingress.kubernetes.io/service.serversscheme: http
+    #traefik.ingress.kubernetes.io/service.serverstransport: "{{ .Release.Namespace }}-minio-server-transport@kubernetescrd"
+
+ingress:
+  enabled: true
+  hosts:
+    - minio.{{ env "GLOBAL_DOMAIN" | default "data-platform.xreveillon.eu" }}
+  path: "/"
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+
+
+consoleService:
+  annotations:
+    traefik.ingress.kubernetes.io/service.serversscheme: http
+    #traefik.ingress.kubernetes.io/service.serverstransport: "{{ .Release.Namespace }}-minio-server-transport@kubernetescrd"
+
+consoleIngress:
+  enabled: true
+  hosts:
+    - minio-console.{{ env "GLOBAL_DOMAIN" | default "data-platform.xreveillon.eu" }}
+  path: "/"
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+
+persistence:
+  enabled: true
+  size: 5Gi
+
+resources:
+  requests:
+    memory: 256Mi
+
+
+
+## List of buckets to be created after minio install
+##
+buckets:
+  #   # Name of the bucket
+  - name: bronze
+    #   # Policy to be set on the
+    #   # bucket [none|download|upload|public]
+    policy: none
+  - name: silver
+    policy: none
+  - name: gold
+    policy: none
+
+  - name: registry
+    policy: none
+
+
+## List of policies to be created after minio install
+##
+## In addition to default policies [readonly|readwrite|writeonly|consoleAdmin|diagnostics]
+## you can define additional policies with custom supported actions and resources
+policies:
+  - name: custom-console-admin
+    statements:
+      - effect: Allow  # this is the default
+        actions:
+          - "admin:*"
+      - effect: Allow
+        resources:
+          - 'arn:aws:s3:::*'
+        actions:
+          - "s3:*"
+  - name: bronze-access
+    statements:
+      - effect: Allow
+        resources:
+          - 'arn:aws:s3:::bronze/*'
+          - 'arn:aws:s3:::bronze'
+        actions:
+          - "s3:*"
+  - name: silver-access
+    statements:
+      - effect: Allow
+        resources:
+          - 'arn:aws:s3:::silver/*'
+          - 'arn:aws:s3:::silver'
+        actions:
+          - "s3:*"
+  - name: gold-access
+    statements:
+      - effect: Allow
+        resources:
+          - 'arn:aws:s3:::gold/*'
+          - 'arn:aws:s3:::gold'
+        actions:
+          - "s3:*"
+  - name: registry-access
+    statements:
+      - effect: Allow
+        resources:
+          - 'arn:aws:s3:::registry/*'
+          - 'arn:aws:s3:::registry'
+        actions:
+          - "s3:*"
+
+
+## List of users to be created after minio install
+##
+users:
+  ## Username, password and policy to be assigned to the user
+  ## Default policies are [readonly|readwrite|writeonly|consoleAdmin|diagnostics]
+  ## Add new policies as explained here https://min.io/docs/minio/kubernetes/upstream/administration/identity-access-management.html#access-management
+  ## NOTE: this will fail if LDAP is enabled in your MinIO deployment
+  ## make sure to disable this if you are using LDAP.
+  - accessKey: {{ env "MINIO_ACCESS_KEY" | default "adminuser" | quote }}
+    secretKey: {{ env "MINIO_SECRET_KEY" | default "adminpassword" | quote }}
+    policy: custom-console-admin
+  - accessKey: {{ env "AIRBYTE_S3_ACCESS_KEY" | default "airbyte" | quote }}
+    secretKey: {{ env "AIRBYTE_S3_SECRET_KEY" | default "airbytepassword" | quote }}
+    policy: bronze-access
+  - accessKey: {{ env "TRINO_S3_BASE_ACCESS_KEY" | default "trino"}}-bronze
+    secretKey: {{ env "TRINO_S3_SECRET_KEY" | default "trinopassword" | quote }}
+    policy: bronze-access
+  - accessKey: {{ env "TRINO_S3_BASE_ACCESS_KEY" | default "trino"}}-silver
+    secretKey: {{ env "TRINO_S3_SECRET_KEY" | default "trinopassword" | quote }}
+    policy: silver-access
+  - accessKey: {{ env "TRINO_S3_BASE_ACCESS_KEY" | default "trino"}}-gold
+    secretKey: {{ env "TRINO_S3_SECRET_KEY" | default "trinopassword" | quote }}
+    policy: gold-access
+  - accessKey: {{ env "NESSIE_S3_BASE_ACCESS_KEY" | default "nessie"}}-silver
+    secretKey: {{ env "NESSIE_S3_SECRET_KEY" | default "trinopassword" | quote }}
+    policy: silver-access
+  - accessKey: {{ env "NESSIE_S3_BASE_ACCESS_KEY" | default "nessie"}}-gold
+    secretKey: {{ env "NESSIE_S3_SECRET_KEY" | default "trinopassword" | quote }}
+    policy: gold-access
+  - accessKey: {{ env "REGISTRY_S3_ACCESS_KEY" | default "registry" | quote }}
+    secretKey: {{ env "REGISTRY_S3_SECRET_KEY" | default "registrypassword" | quote }}
+    policy: registry-access
+
+environment:
+  CONSOLE_PBKDF_PASSPHRASE: sqkedjfhgkbckuerqfgkjhebckuyqzefgrfqefgqerf
+
+# Required to encrypt JWT payload
+  CONSOLE_PBKDF_SALT: qloikchkquiyzegfdkugqikycuge

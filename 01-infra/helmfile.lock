@@ -1,0 +1,37 @@
+version: v1.1.5
+dependencies:
+  - name: cert-manager
+    repository: https://charts.jetstack.io
+    version: v1.18.2
+  - name: docker-registry
+    repository: https://helm.twun.io
+    version: 3.0.0
+  - name: kubedeploy
+    repository: https://charts.sysbee.io/stable/sysbee
+    version: 1.2.2
+  - name: kubedeploy
+    repository: https://charts.sysbee.io/stable/sysbee
+    version: 1.2.2
+  - name: kubedeploy
+    repository: https://charts.sysbee.io/stable/sysbee
+    version: 1.2.2
+  - name: kubedeploy
+    repository: https://charts.sysbee.io/stable/sysbee
+    version: 1.2.2
+  - name: metallb
+    repository: https://metallb.github.io/metallb
+    version: 0.15.2
+  - name: minio
+    repository: https://charts.min.io
+    version: 5.4.0
+  - name: postgresql
+    repository: oci://registry-1.docker.io/bitnamicharts
+    version: 16.7.21
+  - name: traefik
+    repository: https://traefik.github.io/charts
+    version: 37.0.0
+  - name: trust-manager
+    repository: https://charts.jetstack.io
+    version: v0.19.0
+digest: sha256:254ecffce9b3e7c9cf7d2db765844549c09ab72a35ebf838c3f60fb60a2e97aa
+generated: "2025-08-24T08:04:22.143374164+02:00"

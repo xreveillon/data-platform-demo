@@ -1,0 +1,42 @@
+= How to build yourself a temp data-platform
+
+The sole purpose of this repo is to demonstrate how different tools in the data landscape can work together. It is not to be used in production, just on your machine, for playground or development.
+
+A more detailed presentation of this project will be available in the post series "data-platform" on link:https://blog.xreveillon.eu/en-us/posts/data-platform/summary/[my blog].
+
+== Prerequisites
+
+This project was developed on a linux-based OS (Debian). It may work on other OSes like BSD-based ones.
+
+For example, it will not work as is on Windows, because the Windows host cannot comunicate directly with the containers, even with WSL2. I have not tested the https://learn.microsoft.com/en-us/windows/wsl/networking#mirrored-mode-networking[networking mirror mode,window=_blank] on Windows, it might work.
+
+This demo was developed with Docker containers. All the tools listed below work with podman, but the script 01-infra/last10range.sh would have to be adapted. Its purpose is to get the last 10 available IP in the container network used by Kind.
+
+
+== Step 1
+
+```bash
+git clone https://github.com/xreveillon/data-platform-demo.git
+cd data-platform-demo/01-infra
+```
+
+Follow the link:./01-infra/[`README`] instructions
+
+////
+In the future
+== Step 2
+
+`cd ../02-nessie`
+Follow the `README` instructions
+
+== Step 3
+
+`cd ../03-trino`
+Follow the `README` instructions
+
+== Step 4
+
+Here we begin the data work.
+`cd ../04-airbyte`
+Follow the `README` instructions
+////

@@ -1,0 +1,130 @@
+repositories:
+  - name: metallb
+    url: https://metallb.github.io/metallb
+  - name: sysbee
+    url: https://charts.sysbee.io/stable/sysbee
+  - name: jetstack
+    url: https://charts.jetstack.io
+  - name: traefik
+    url: https://traefik.github.io/charts
+  - name: minio
+    url: https://charts.min.io
+  - name: bitnami
+    url: registry-1.docker.io/bitnamicharts
+    oci: true
+  - name: twuni   # For the docker registry
+    url: https://helm.twun.io
+
+kubeVersion: 1.33
+
+helmDefaults:
+  kubeContext: kind-data-platform
+
+
+releases:
+  - name: metallb
+    namespace: metallb-system
+    createNamespace: true
+    chart: metallb/metallb
+    wait: true
+  - name: kubedeploy-metallb
+    namespace: metallb-system
+    chart: sysbee/kubedeploy
+    disableValidationOnInstall: true
+    needs:
+      - metallb-system/metallb
+    values:
+      - values/metallb-extraobjects.yaml.gotmpl
+  - name: cert-manager
+    namespace: cert-manager
+    createNamespace: true
+    chart: jetstack/cert-manager
+    wait: true
+    disableValidationOnInstall: true
+    values:
+      - crds:
+          enabled: true
+        prometheus:
+          enabled: false
+        config:
+          apiVersion: controller.config.cert-manager.io/v1alpha1
+          kind: ControllerConfiguration
+          enableGatewayAPI: true
+  - name: cert-manager-extra-objects
+    namespace: cert-manager
+    chart: sysbee/kubedeploy
+    disableValidationOnInstall: true
+    wait: true
+    needs:
+      - cert-manager/cert-manager
+    values:
+      - values/cert-manager-extraObjects.yaml.gotmpl
+  - name: trust-manager
+    namespace: cert-manager
+    chart: jetstack/trust-manager
+    disableValidationOnInstall: true
+    wait: true
+    needs:
+      - cert-manager/cert-manager-extra-objects
+    values:
+      - crds:
+          enabled: true
+        secretTargets:
+          enabled: false
+  - name: trust-manager-extra-objects
+    namespace: cert-manager
+    chart: sysbee/kubedeploy
+    disableValidationOnInstall: true
+    wait: true
+    needs:
+      - cert-manager/trust-manager
+    values:
+      - values/trust-manager-extraObjects.yaml.gotmpl
+  - name: traefik
+    namespace: traefik
+    createNamespace: true
+    chart: traefik/traefik
+    disableValidationOnInstall: true
+    values:
+      - values/traefik-values.yaml.gotmpl
+    needs:
+      - cert-manager/cert-manager
+  - name: minio-extra-objects-pre
+    namespace: minio
+    createNamespace: true
+    chart: sysbee/kubedeploy
+    wait: true
+    disableValidationOnInstall: true
+    needs:
+      - cert-manager/cert-manager-extra-objects
+    #  - traefik/traefik
+    values:
+      - values/minio-extraObjects-pre.yaml.gotmpl
+  - name: minio
+    namespace: minio
+    createNamespace: true
+    chart: minio/minio
+    disableValidationOnInstall: true
+    wait: true
+    needs:
+      - minio/minio-extra-objects-pre
+    values:
+      - values/minio-values.yaml.gotmpl
+  - name: pg-source
+    namespace: postgresql
+    createNamespace: true
+    chart: bitnami/postgresql
+    version: 16.7.21
+    # add a dependency just so that the service loadbalancer of traefik keeps the same ip
+    needs:
+      - traefik/traefik
+    values:
+      - values/pg-source-values.yaml.gotmpl
+  - name: registry
+    namespace: registry
+    createNamespace: true
+    chart: twuni/docker-registry
+    needs:
+      - minio/minio
+    values:
+      - values/docker-registry-values.yaml.gotmpl
