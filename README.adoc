@@ -98,7 +98,8 @@ docker compose logs -f postgres-source
 .The process has ended when there is a "ALTER TABLE" and a "COMMIT" after the 5th "CREATE TABLE".
 image::docs/images/postgres-source-loading-its-data.png[The process has ended when there is a "ALTER TABLE" and a "COMMIT" after the 5th "CREATE TABLE".]
 [source,bash]
-----postgres-source-1  | CREATE TABLE
+----
+postgres-source-1  | CREATE TABLE
 postgres-source-1  | COPY 1221
 postgres-source-1  | CREATE TABLE
 postgres-source-1  | COPY 2313
