@@ -14,6 +14,7 @@ toc::[]
 === Components
 
 The platform make use of several components :
+
 * Postgresql: for component databases (Dagster, Nessie) and for source data
 * MinIO: For S3 storage, for source data, as well as for parquet and iceberg data
 * Dagster: as data orchestrator
@@ -32,6 +33,7 @@ As a side-project, I was storing its content in a PostgreSQL database, with some
 In this data-platform, I'm providing the historical data in a postgres-source container, containing the full 18 months of data. As it's using 35 GB of storage, the timeframe is customizable. I'm also providing the current S3 content in the MinIO container.
 
 The end-goal is to extract some useful metrics such as:
+
 * is the number of EV growing?
 * how much energy is needed by all EV?
 * are the stations well located?
