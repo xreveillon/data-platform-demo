@@ -71,13 +71,13 @@ sed -i "s#^DOCKER_GROUP_ID=.*\$#DOCKER_GROUP_ID=${DOCKER_GROUP_GID}#" ./dagster-
 
 As already said, the full source data in PostgreSQL takes 35 GB of storage. It is containing data from 2024-04-01 to 2025-11-10.
 
-To cut roughly in half, use a start date (in YYYY-MM-DD format) as of 2025-01-01, in the file ./dagster-workspace/.env-chargy
+To cut the 35 GB roughly in half, use a start date (in YYYY-MM-DD format) as of 2025-01-01, in the file ./dagster-workspace/.env-chargy
 
 .Choose a start data and assign it
 [source,bash]
 ----
 export START_DATE=2025-01-01
-sed -i "s#^CHARGY_POSTGRES_START_DATE=.*\$#CHARGY_POSTGRES_START_DATE=${START_DATE}#"
+sed -i "s#^CHARGY_POSTGRES_START_DATE=.*\$#CHARGY_POSTGRES_START_DATE=${START_DATE}#" ./dagster-workspace/.env-chargy
 ----
 
 == Let's start it!
