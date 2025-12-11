@@ -1,0 +1,71 @@
+storage:
+  postgres:
+    postgres_db:
+      username:
+        env: DAGSTER_PG_USERNAME
+      password:
+        env: DAGSTER_PG_PASSWORD
+      hostname:
+        env: DAGSTER_PG_HOSTNAME
+      db_name:
+        env: DAGSTER_PG_DBNAME
+      port: 5432
+
+run_launcher:
+  module: dagster_docker
+  class: DockerRunLauncher
+  config:
+    networks:
+      - dagster
+      - net-nessie
+    env_vars:
+      - DAGSTER_PG_USERNAME
+      - DAGSTER_PG_PASSWORD
+      - DAGSTER_PG_HOSTNAME
+      - DAGSTER_PG_DBNAME
+      - CHARGY_S3_ENDPOINT_URL
+      - CHARGY_S3_ACCESS_KEY_ID
+      - CHARGY_S3_SECRET_KEY
+      - CHARGY_KML_FILE_URL
+      - CHARGY_S3_BUCKET
+      - CHARGY_POSTGRES_SOURCE_HOST
+      - CHARGY_POSTGRES_SOURCE_PORT
+      - CHARGY_POSTGRES_SOURCE_DATABASE
+      - CHARGY_POSTGRES_SOURCE_DEFAULT_SCHEMA
+      - CHARGY_POSTGRES_SOURCE_USERNAME
+      - CHARGY_POSTGRES_SOURCE_PASSWORD
+      - CHARGY_POSTGRES_START_DATE
+      - CHARGY_POSTGRES_END_DATE
+      - CHARGY_ICEBERG_DATA_BUCKET
+      - CHARGY_ICEBERG_WAREHOUSE
+      - CHARGY_ICEBERG_CATALOG_URI
+
+    image: docker.gijoe88.com/dagster/code-chargy:latest
+    container_kwargs:
+      auto_remove: true
+      volumes:
+        - "dagster-runs-telemetry:/opt/dagster/dagster_home/.telemetry"
+
+freshness:
+  enabled: true
+python_logs:
+  python_log_level: DEBUG
+  managed_python_loggers:
+    - chargy.defs.assets.source.utils.kml_to_polars
+    - chargy.resources.s3_iomanagers
+    - chargy.resources.s3_resources
+
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    max_concurrent_runs: 5
+
+telemetry:
+  enabled: true
+
+compute_logs:
+  module: dagster.core.storage.local_compute_log_manager
+  class: LocalComputeLogManager
+  config:
+    base_dir: /opt/dagster/dagster_home/logs

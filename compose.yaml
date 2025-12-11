@@ -1,0 +1,6 @@
+include:
+  - path: ./dagster-workspace/compose.yaml
+  - path: ./nessie/compose.yaml
+    env_file:
+      - ./nessie/.env
+      - ./dagster-workspace/.env-chargy # For the start date of the source data in postgresql

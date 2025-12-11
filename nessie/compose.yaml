@@ -1,0 +1,215 @@
+# See .env file for the different values, names, credentials, etc.
+
+x-config-for-all: &shared-config
+  restart: unless-stopped
+  networks:
+    - net-nessie
+
+x-trino-shared: &trino
+  <<: *shared-config
+  image: trinodb/trino:${TRINO_VERSION}
+  environment:
+    CATALOG_MANAGEMENT: "dynamic"
+
+services:
+  init-db:
+    # Only does one thing for now: copy the ssl certificates with correct permissions to postgresql volume
+    <<: *shared-config
+    image: debian:latest
+    volumes:
+      - nessie-db-data:/bitnami/postgresql
+      - "./ssl/03-servers/01-postgresql:/bitnami/ssl"
+    user: root
+    command: bash -c "set -x && mkdir -p /bitnami/postgresql/ssl && cp /bitnami/ssl/* /bitnami/postgresql/ssl/ && chown -R ${NESSIE_DB_CONTAINERUSER} /bitnami/postgresql/ssl"
+    restart: no # overrides
+
+  nessie-db:
+    <<: *shared-config
+    image: ${NESSIE_DB_IMAGE}:${NESSIE_DB_VERSION}
+    environment:
+      POSTGRESQL_DATABASE: ${NESSIE_DB_DBNAME}
+      POSTGRESQL_PORT_NUMBER: "${NESSIE_DB_PORT}"
+      POSTGRESQL_ALLOW_REMOTE_CONNECTIONS: "yes"
+      POSTGRESQL_USERNAME: ${NESSIE_DB_USERNAME}
+      POSTGRESQL_ENABLE_TLS: yes
+      POSTGRESQL_TLS_CERT_FILE: /bitnami/postgresql/ssl/nessie-db-fullchain.pem
+      POSTGRESQL_TLS_KEY_FILE: /bitnami/postgresql/ssl/nessie-db-key.pem
+      POSTGRESQL_TLS_CA_FILE: /bitnami/postgresql/ssl/postgres-ca.pem
+      POSTGRESQL_PGHBA_REMOVE_FILTERS: "local, md5, trust"
+      ALLOW_EMPTY_PASSWORD: yes
+    volumes:
+      - nessie-db-data:/bitnami/postgresql
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+
+  minio:
+    <<: *shared-config
+    image: "gijoe88/minio-with-chargy-data:latest"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
+    command:
+      - server
+      - /data
+      - --address
+      - ":${MINIO_PORT}"
+      - --console-address
+      - ":${MINIO_CONSOLE_PORT}"
+    volumes:
+      - "minio-data:/data"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  # Creates the bucket and user for nessie
+  minio-init:
+    <<: *shared-config
+    image: "quay.io/minio/mc:latest"
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint:
+      - "sh"
+      - "-c"
+      - "-ex"
+    command:
+      - |
+        mc alias set minio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}
+
+        mc ls minio/${S3_NESSIE_BUCKET_NAME} || mc mb minio/${S3_NESSIE_BUCKET_NAME}
+        mc admin user add minio ${S3_NESSIE_ACCESS_KEY_ID} ${S3_NESSIE_SECRET_ACCESS_KEY}
+        mc admin policy attach minio consoleAdmin --user "${S3_NESSIE_ACCESS_KEY_ID}"
+
+        mc ls minio/${S3_DAGSTER_BUCKET_NAME} || mc mb minio/${S3_DAGSTER_BUCKET_NAME}
+        mc admin user add minio ${S3_DAGSTER_ACCESS_KEY_ID} ${S3_DAGSTER_SECRET_ACCESS_KEY}
+        mc admin policy attach minio consoleAdmin --user "${S3_DAGSTER_ACCESS_KEY_ID}"
+
+        mc admin user add minio ${S3_TRINO_ACCESS_KEY_ID} ${S3_TRINO_SECRET_ACCESS_KEY}
+        mc admin policy attach minio consoleAdmin --user "${S3_TRINO_ACCESS_KEY_ID}"
+    restart: on-failure # override
+
+  nessie:
+    <<: *shared-config
+    image: ghcr.io/projectnessie/nessie:${NESSIE_VERSION}
+    depends_on:
+      # keycloak:
+      #   condition: service_healthy
+      nessie-db:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    ports:
+      - "19120:19120"
+    environment:
+      # Database settings.
+      - nessie.version.store.type=JDBC2
+      - nessie.version.store.persist.jdbc.datasource=postgresql
+      - quarkus.datasource.postgresql.jdbc.url=jdbc:postgresql://${NESSIE_DB_HOST}:${NESSIE_DB_PORT}/${NESSIE_DB_DBNAME}?sslmode=verify-full&sslcert=/home/nessie/ssl/nessie-pgclient.pem&sslkey=/home/nessie/ssl/nessie-pgclient.p12&sslpassword=${NESSIE_DB_CERTPASSWORD}&sslrootcert=/home/nessie/ssl/root-ca.pem
+      - quarkus.datasource.postgresql.username=${NESSIE_DB_USERNAME}
+      # Auth settings.
+      - nessie.server.authentication.enabled=false
+      #- quarkus.oidc.auth-server-url=http://keycloak:8080/realms/iceberg
+      #- quarkus.oidc.token.issuer=http://${DOCKER_HOST_QUALIFIED_NAME}:8080/realms/iceberg
+      # Object store settings.
+      - nessie.catalog.default-warehouse=nessie_warehouse
+      - nessie.catalog.warehouses.nessie_warehouse.location=s3a://${S3_NESSIE_BUCKET_NAME}/
+      - nessie.catalog.service.s3.default-options.path-style-access=true
+      - nessie.catalog.service.s3.default-options.region=local
+      - nessie.catalog.service.s3.default-options.access-key=urn:nessie-secret:quarkus:nessie.catalog.secrets.access-key
+      - nessie.catalog.secrets.access-key.name=${S3_NESSIE_ACCESS_KEY_ID}
+      - nessie.catalog.secrets.access-key.secret=${S3_NESSIE_SECRET_ACCESS_KEY}
+      - nessie.catalog.service.s3.default-options.endpoint=${STORAGE_ENDPOINT}
+      # Authorization settings.
+      - nessie.server.authorization.enabled=false
+      # - nessie.server.authorization.rules.airflow=role=='service-account-airflow'
+      # - nessie.server.authorization.rules.denodo_mpp=role=='service-account-denodo_mpp'
+
+      # debugging
+      #- quarkus.log.console.level=DEBUG
+      #- quarkus.otel.exporter.otlp.traces.endpoint=http://10.128.0.1:4317
+      #- quarkus.log.category."io.smallrye.config".level=DEBUG
+      #- quarkus.log.level=DEBUG
+    volumes:
+      - ./ssl/03-servers/02-nessie:/home/nessie/ssl
+    healthcheck:
+      test: "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /q/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'"
+      interval: 5s
+      timeout: 2s
+      retries: 15
+
+  trino-coordinator:
+    <<: *trino
+    hostname: trino-coordinator
+    ports:
+      - "8081:8081"
+    volumes:
+      - type: volume
+        source: trino-catalogs
+        target: /etc/trino/catalog
+      - type: bind
+        source: ./config/trino/coordinator
+        target: /etc/trino
+
+  trino-worker:
+    <<: *trino
+    volumes:
+      - type: volume
+        source: trino-catalogs
+        target: /etc/trino/catalog
+      - type: bind
+        source: ./config/trino/workers
+        target: /etc/trino
+
+  postgres-source:
+    <<: *shared-config
+    image: gijoe88/pg-container-with-chargy-data:latest
+    environment:
+      CHARGY_START_DATE: "${CHARGY_START_DATE:-2024-04-01T00:00:00.000Z}"
+      POSTGRES_PASSWORD: dagster
+    volumes:
+      - type: volume
+        source: postgres-source-data
+        target: /var/lib/postgresql/data
+
+  # # The "iceberg" realm configuration is imported from ./config/iceberg-realm.json.
+  # # Data is stored under ./data (development mode, production would require a RDBMS).
+  # # To access the Keycloak admin console, browse to http://localhost:8080 and log in with the KC_BOOSTRAP_ADMIN credentials.
+  # keycloak:
+  #   container_name: keycloak-dev
+  #   image: quay.io/keycloak/keycloak:26.3.3
+  #   restart: unless-stopped
+  #   ports:
+  #     - "127.0.1.1:8080:8080"
+  #   environment:
+  #     KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+  #     KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_PASSWORD}
+  #     KC_DB: dev-file
+  #   volumes:
+  #     - ./config/iceberg-realm.json:/opt/keycloak/data/import/iceberg-realm.json
+  #     - ./data:/opt/keycloak/data/h2
+  #   command:
+  #     [
+  #       "start-dev",
+  #       "--features=token-exchange",
+  #       "--spi-connections-jpa-quarkus-migration-strategy=update",
+  #       "--import-realm",
+  #       "--health-enabled=true",
+  #     ]
+  #   healthcheck:
+  #     test: "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'"
+  #     interval: 5s
+  #     timeout: 2s
+  #     retries: 15
+  #   networks:
+  #     - net-nessie
+
+networks:
+  net-nessie:
+    name: net-nessie
+
+volumes:
+  nessie-db-data:
+  minio-data:
+  trino-catalogs:
+  postgres-source-data:

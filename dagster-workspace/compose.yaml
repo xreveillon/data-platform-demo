@@ -1,0 +1,182 @@
+name: dagster
+
+x-servicedagsterdefault: &servicedagsterdefault
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: dagster
+    args:
+      PYTHON_VERSION: ${PYTHON_VERSION}
+      DEBIAN_VERSION: ${DEBIAN_VERSION}
+      DAGSTER_VERSION: ${DAGSTER_VERSION}
+      DOCKER_GROUP_ID: ${DOCKER_GROUP_ID}
+  pull_policy: build
+  depends_on:
+    #      dagster-add-dockergroup:
+    #        condition: service_completed_successfully
+    dagster-postgresql:
+      condition: service_healthy
+    dagster-code-chargy:
+      condition: service_started
+    dagster-init-volume:
+      condition: service_completed_successfully
+  env_file: &envfile
+    - path: .env
+      required: true
+    - path: .env-chargy
+      required: true
+    - path: .env-chargy-override
+      required: false
+  networks:
+    dagster:
+  restart: unless-stopped
+  group_add:
+    - docker
+  develop:
+    watch:
+      - path: dagster.yaml
+        action: rebuild
+      - path: workspace.yaml
+        action: rebuild
+
+services:
+  dagster-postgresql:
+    image: postgres:${POSTGRESQL_VERSION:-17}
+    environment:
+      POSTGRES_USER: ${DAGSTER_PG_USERNAME}
+      POSTGRES_PASSWORD: ${DAGSTER_PG_PASSWORD}
+      POSTGRES_DB: ${DAGSTER_PG_DBNAME}
+    networks:
+      dagster:
+        aliases:
+          - "dagster-db"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DAGSTER_PG_USERNAME} -d ${DAGSTER_PG_DBNAME}",
+        ]
+      interval: 10s
+      timeout: 8s
+      retries: 5
+    volumes:
+      - "dagster-postgres-data:/var/lib/postgresql/data"
+    restart: unless-stopped
+
+  dagster-code-chargy:
+    build:
+      context: projects/chargy-data
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION}
+        DEBIAN_VERSION: ${DEBIAN_VERSION}
+    image: docker.gijoe88.com/dagster/code-chargy:latest
+    env_file: *envfile
+    pull_policy: build
+    networks:
+      dagster:
+        aliases:
+          - "code-chargy"
+    restart: unless-stopped
+    develop:
+      watch:
+        - path: projects/chargy-data/src/chargy/defs
+          action: rebuild
+        - path: projects/chargy-data/src/chargy/resources
+          action: rebuild
+        - path: projects/chargy-data/uv.lock
+          action: rebuild
+    volumes:
+      - type: volume
+        source: dagster-logs
+        target: /opt/dagster/dagster_home/logs
+
+  dagster-webserver:
+    <<: *servicedagsterdefault
+    entrypoint:
+      - dagster-webserver
+    command:
+      - -h
+      - "0.0.0.0"
+      - -p
+      - "3000"
+      - -w
+      - workspace.yaml
+    expose:
+      - "3000"
+    ports:
+      - "127.0.0.1:3000:3000"
+    group_add:
+      - docker
+    volumes:
+      # Make docker client accessible so we can terminate containers from the webserver
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/io_manager_storage:/tmp/io_manager_storage
+      - type: volume
+        source: dagster-services-telemetry
+        target: /opt/dagster/dagster_home/.telemetry
+        volume:
+          subpath: webserver
+      - type: volume
+        source: dagster-logs
+        target: /opt/dagster/dagster_home/logs
+
+  dagster-daemon:
+    <<: *servicedagsterdefault
+    entrypoint:
+      - dagster-daemon
+    command:
+      - run
+      - "-w"
+      - workspace.yaml
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/io_manager_storage:/tmp/io_manager_storage
+      - type: volume
+        source: dagster-services-telemetry
+        target: /opt/dagster/dagster_home/.telemetry
+        volume:
+          subpath: daemon
+      - type: volume
+        source: dagster-logs
+        target: /opt/dagster/dagster_home/logs
+
+  dagster-init-volume:
+    image: debian:${DEBIAN_VERSION}
+    volumes:
+      - type: volume
+        source: dagster-services-telemetry
+        target: /dagster-services
+      - type: volume
+        source: dagster-runs-telemetry
+        target: /dagster-runs
+      - type: volume
+        source: dagster-logs
+        target: /dagster-logs
+    entrypoint:
+      - "sh"
+      - "-c"
+      - "-ex"
+    command:
+      - |
+        mkdir -p /dagster-services/webserver /dagster-services/daemon
+        chown -R 999:999 /dagster-services
+
+        chown -R 999:999 /dagster-runs
+
+        chown -R 999:999 /dagster-logs
+
+networks:
+  dagster:
+    name: dagster
+    enable_ipv6: true
+    enable_ipv4: true
+
+volumes:
+  dagster-postgres-data:
+  dagster-services-telemetry:
+  dagster-runs-telemetry:
+    name: dagster-runs-telemetry
+    external: false
+  dagster-logs:
