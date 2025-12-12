@@ -4,3 +4,5 @@ include:
     env_file:
       - ./nessie/.env
       - ./dagster-workspace/.env-chargy # For the start date of the source data in postgresql
+
+networks: {}

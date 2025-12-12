@@ -131,7 +131,7 @@ image::docs/images/dagster-lineage.png[]
 
 == Let's load Nessie!
 
-. At the first start, Nessie must be initialized by creating needing namespaces (≃ schemas in databses). A job exists for this in Dagster.
+. At the first start, Nessie must be initialized by creating needing namespaces (≃ schemas in databases). A job exists for this in Dagster.
 +
 --
 Let's browse to http://localhost:3000 , going into "jobs", and launch the job "iceberg_create_needed_namespaces".
@@ -141,7 +141,7 @@ image::docs/images/dagster-launch-job-nessie-namespaces.png[]
 Accept the default values and click "Launch run"
 --
 
-. The historical data in Postgres is not managed by Dagster. It is referenced by an "external asset" (a standalone "AssetSpec" in the code, and a dotted asset in the UI), and dagster does not know that it is already materialized. Let's launch the job "job_record_historical_postgres"
+. The historical data in Postgres is not managed by Dagster. It is referenced by an "external asset" (a standalone "AssetSpec" in the code, and a dotted asset in the UI), and dagster does not know that it is already materialized/persisted. Let's launch the job "job_record_historical_postgres" to remediate to this missing knowledge.
 +
 --
 image::docs/images/dagster-launch-record-historical-postgres.png[]
