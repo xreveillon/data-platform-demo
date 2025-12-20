@@ -161,6 +161,24 @@ services:
         source: ./config/trino/workers
         target: /etc/trino
 
+  trino-init-nessie:
+    <<: *trino
+    depends_on:
+      - trino-coordinator
+      - nessie
+    restart: on-failure
+    entrypoint:
+      - "bash"
+      - "-c"
+      - "-ex"
+    command:
+      - |
+        if trino --server http://trino-coordinator:8081 --execute "SHOW CATALOGS LIKE 'nessie'" | tail -n +1 | grep -q "nessie"; then
+          echo "Nessie catalog already exists" ;
+        else
+          trino --server http://trino-coordinator:8081 --execute 'CREATE CATALOG nessie USING iceberg WITH ( "fs.native-s3.enabled" = '\''true'\'', "iceberg.catalog.type" = '\''rest'\'', "iceberg.rest-catalog.security" = '\''NONE'\'', "iceberg.rest-catalog.uri" = '\''http://nessie:19120/iceberg/'\'', "iceberg.rest-catalog.vended-credentials-enabled" = '\''false'\'', "s3.endpoint" = '\''http://minio:9000/'\'', "s3.path-style-access" = '\''true'\'', "s3.region" = '\''local'\'', "s3.aws-access-key" = '\''${S3_TRINO_ACCESS_KEY_ID}'\'', "s3.aws-secret-key" = '\''${S3_TRINO_SECRET_ACCESS_KEY}'\'' );'
+        fi
+
   postgres-source:
     <<: *shared-config
     image: gijoe88/pg-container-with-chargy-data:latest
@@ -171,6 +189,24 @@ services:
       - type: volume
         source: postgres-source-data
         target: /var/lib/postgresql/data
+
+  trino-init-postgres-source:
+    <<: *trino
+    depends_on:
+      - trino-coordinator
+      - postgres-source
+    restart: on-failure
+    entrypoint:
+      - "bash"
+      - "-c"
+      - "-ex"
+    command:
+      - |
+        if trino --server http://trino-coordinator:8081 --execute "SHOW CATALOGS LIKE 'postgres_source'" | tail -n +1 | grep -q "postgres_source"; then
+          echo "Postgressource catalog already exists" ;
+        else
+          trino --server http://trino-coordinator:8081 --execute 'CREATE CATALOG postgres_source USING postgresql WITH ( "connection-url" = '\''jdbc:postgresql://postgres-source:5432/postgres?user=postgres&password=dagster'\'');'
+        fi
 
   # # The "iceberg" realm configuration is imported from ./config/iceberg-realm.json.
   # # Data is stored under ./data (development mode, production would require a RDBMS).

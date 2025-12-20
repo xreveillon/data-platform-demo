@@ -157,7 +157,7 @@ image::docs/images/dagster-materialize-kml-archive.png[]
 image::docs/images/dagster-backfill-select-all-partitions.png[]
 --
 
-. Wait for the coded automations to do its work, and automatically refresh downstream assets
+. Wait for the coded automations to do its work, it will automatically refresh downstream assets
 
 == Meanwhile, some description of dagster
 
@@ -259,3 +259,131 @@ When the materialization of an asset is not regular/periodic, the sensors come i
 
 
 And there are so many other concepts in Dagster that make developing data projects so much easier. The IO Manager, from my point of view, is the most important in separating the definition of an asset and dependencies from its persistance.
+
+
+== Querying trino
+
+To connect a SQL client to trino, just point it to htt://localhost:8081 , without any auth information.
+
+Trino is already initialized with a connection to nessie and to the postgres source container.
+So you execute some queries to compare the performance.
+
+=== Total number of charging point readings (socket where to connect the EV cable)
+
+.Querying Nessie
+[source,SQL]
+----
+-- Total number of charging point readings for all time
+SELECT  COUNT(*) AS nb
+FROM    nessie.chargy.charging_point_with_status
+;
+----
+
+.Querying postgres historical data
+[source,SQL]
+----
+-- Total number of charging point readings for all time
+SELECT  COUNT(*) AS nb
+FROM    postgres_source.public.connector_status
+;
+----
+
+=== Number of station readings per date
+
+.Querying Nessie
+[source,SQL]
+----
+-- Number of station readings per date
+-- Here, using date_trunc(timestamp) is not the best way to query, because the "date" column already exists
+-- Using date_trunc for comparison to postgresql
+SELECT  DATE_TRUNC('day', sttsta.timestamp) AS date,
+        COUNT(*) AS nb
+FROM    nessie.chargy.station_with_status sttsta
+GROUP BY    DATE_TRUNC('day', sttsta.timestamp)
+ORDER BY    date
+;
+----
+
+.Queryin postgres historical data
+[source,SQL]
+----
+-- Number of station readings per date
+SELECT  DATE_TRUNC('day', sttsta.status_date) as date,
+        COUNT(*) AS nb
+FROM    postgres_source.public.station_status sttsta
+GROUP BY    DATE_TRUNC('day', sttsta.status_date)
+ORDER BY    date
+;
+----
+
+=== Number of charging point readings per status on each date
+
+.Querying Nessie
+[source,SQL]
+----
+-- Number of charging points per status on each date
+-- Same comment as for first query about usage of DATE_TRUNC
+SELECT  COUNT(*) AS nb,
+        DATE_TRUNC('day', consta.timestamp) AS "date",
+        consta.description
+FROM    nessie.chargy.charging_point_with_status consta
+GROUP BY    DATE_TRUNC('day', consta.timestamp),
+            consta.description
+ORDER BY    "date" DESC,
+            description
+;
+----
+
+.Querying postgres historical data
+[source,SQL]
+----
+-- Number of charging points per status on each date
+SELECT  COUNT(*) AS nb,
+        DATE_TRUNC('day', consta.status_date) AS date,
+        consta.status as description
+FROM    postgres_source.public.connector_status consta
+GROUP BY    DATE_TRUNC('day', consta.status_date),
+            consta.status
+ORDER BY    "date" DESC,
+            description
+;
+----
+
+=== Number of charging points per electrical power, on the last reading
+
+.Querying Nessie
+[source,SQL]
+----
+-- On the last date of the readings, number of charging point per electric power
+-- Similar to other comments above, here the query does not allow partition pruning.
+-- Best way to query would be to get max of column "date", for that date get max of timestamp
+-- and then query for both date and timestamp values.
+SELECT  COUNT(*) AS nb,
+        consta.maxchspeed
+FROM    (
+            SELECT  MAX("timestamp") AS max_timestamp
+            FROM    nessie.chargy.charging_point_with_status
+        ) maxdt
+        INNER JOIN nessie.chargy.charging_point_with_status consta ON consta."timestamp" = maxdt.max_timestamp
+GROUP BY    consta.maxchspeed
+ORDER BY    maxchspeed
+;
+----
+
+.Querying historical data on PostgreSQL
+[source,SQL]
+----
+-- On the last date of the readings, number of charging point per electric power
+-- Here, best would be to get only connectors being "active", no need to query the fact table
+SELECT  COUNT(*) AS nb,
+        con.maxchspeed
+FROM    (
+            SELECT  MAX(status_date) AS max_timestamp
+            FROM    postgres_source.public.connector_status
+        ) maxdt
+        INNER JOIN postgres_source.public.connector_status consta ON consta.status_date = maxdt.max_timestamp
+        INNER JOIN postgres_source.public.connector con ON consta.connector_id = con.id AND con.is_last_version
+GROUP BY    con.maxchspeed
+ORDER BY    maxchspeed
+;
+----

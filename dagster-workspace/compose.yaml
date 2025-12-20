@@ -10,7 +10,6 @@ x-servicedagsterdefault: &servicedagsterdefault
       DEBIAN_VERSION: ${DEBIAN_VERSION}
       DAGSTER_VERSION: ${DAGSTER_VERSION}
       DOCKER_GROUP_ID: ${DOCKER_GROUP_ID}
-    network: bridge
   pull_policy: build
   depends_on:
     #      dagster-add-dockergroup:
@@ -71,7 +70,6 @@ services:
       args:
         PYTHON_VERSION: ${PYTHON_VERSION}
         DEBIAN_VERSION: ${DEBIAN_VERSION}
-      network: bridge
     image: docker.gijoe88.com/dagster/code-chargy:latest
     env_file: *envfile
     pull_policy: build
@@ -169,15 +167,13 @@ services:
 
         chown -R 999:999 /dagster-logs
     networks:
-      none:
+      dagster:
 
 networks:
   dagster:
     name: dagster
     enable_ipv6: true
     enable_ipv4: true
-  none:
-    external: true
 
 volumes:
   dagster-postgres-data:
