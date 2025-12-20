@@ -268,6 +268,12 @@ To connect a SQL client to trino, just point it to htt://localhost:8081 , withou
 Trino is already initialized with a connection to nessie and to the postgres source container.
 So you execute some queries to compare the performance.
 
+In general, you'll see more than a 10x time improvement, due to
+
+- partition pruning, querying only needed data files
+- column pruning, querying only needed columns (against PostgreSQL browsing all columns of a table)
+- statistics, accelerating the seeking of data
+
 === Total number of charging point readings (socket where to connect the EV cable)
 
 .Querying Nessie
@@ -355,7 +361,7 @@ ORDER BY    "date" DESC,
 [source,SQL]
 ----
 -- On the last date of the readings, number of charging point per electric power
--- Similar to other comments above, here the query does not allow partition pruning.
+-- Similar to other comments above, here the query does not allow direct partition pruning.
 -- Best way to query would be to get max of column "date", for that date get max of timestamp
 -- and then query for both date and timestamp values.
 SELECT  COUNT(*) AS nb,
